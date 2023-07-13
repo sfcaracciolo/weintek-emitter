@@ -1,0 +1,9 @@
+{
+    "name": "weintek-emitter",
+    "description": "Small interface to use a socket in a JS object of EBPro.",
+    "version": "0.0.1",
+    "license": "MIT",
+    "repository": {
+        "url": "github.com/sfcaracciolo/weintek-emitter"
+    }
+}

@@ -1,0 +1,150 @@
+﻿macro_definition_begin
+    "id": "100"
+    "name": "SNMP driver"
+    "startup": "true"
+    "periodic": [ "false" ]
+    "interlock": [ "false" ]
+macro_definition_end
+		
+bool ON=true, OFF=false
+unsigned short BUFFER_MAXSIZE=2048
+unsigned char IO_BUFFER[2048] = {0} 
+unsigned short IO_BUFFER_LEN = 0
+unsigned short MAX_WAITING = 10000 // ms
+
+sub SEND_PACKET_TO_HOST(bool IS_TRAP)
+	
+	// getting  response from hmi memory
+	GetData(IO_BUFFER[0], "Local HMI", "IO_BUFFER", BUFFER_MAXSIZE)
+	GetData(IO_BUFFER_LEN, "Local HMI", "IO_BUFFER_LEN", 1)
+	
+	// sending response
+	TRACE("Send data: %d bytes", IO_BUFFER_LEN)
+	if IS_TRAP then
+		OUTPORT(IO_BUFFER[0], "SNMP Originator", IO_BUFFER_LEN)
+	else
+		OUTPORT(IO_BUFFER[0], "SNMP Agent", IO_BUFFER_LEN)
+	end if 
+	
+	SetData(OFF, "Local HMI", "RESPONSE_READY_TO_SEND", 1)
+	
+end sub
+
+sub bool BUILD_PACKET_ON_JS(bool IS_TRAP)
+	unsigned short i = 0, TRIGGER=0
+	bool READY=false, ERROR=false
+	
+	TRACE("Building packet ...")
+	TRACE("Is TRAP: %d (0: False, 1: True)", IS_TRAP)
+	TRACE("Received data: %d bytes", IO_BUFFER_LEN)
+	
+	if not IS_TRAP then 
+		// set request to hmi memory
+		SetData(IO_BUFFER[0], "Local HMI", "IO_BUFFER", BUFFER_MAXSIZE)
+		SetData(IO_BUFFER_LEN, "Local HMI", "IO_BUFFER_LEN", 1)
+		
+	end if 
+	
+	// trigger to exec js subscription
+	SetData(IS_TRAP, "Local HMI", "IS_TRAP", 1)	
+	GetData(TRIGGER, "Local HMI", "TRIGGER", 1)
+	TRIGGER = TRIGGER + 1
+	SetData(TRIGGER, "Local HMI", "TRIGGER", 1)	
+	
+	// waiting rsponse process of js object.
+	while (not READY) and (not ERROR) and (i < MAX_WAITING)
+		GetData(READY, "Local HMI", "RESPONSE_READY_TO_SEND", 1)
+		GetData(ERROR, "Local HMI", "RESPONSE_ERROR_FLAG", 1)
+		//TRACE("waiting ...")
+		DELAY(150)
+		i = i + 150
+	wend
+	
+	TRACE("Processing time: %d ms", i)
+	
+	return ERROR
+	
+end sub
+
+sub bool CHECK_NOTIFICATIONS()
+	
+	bool NOTIFICATION=false
+	unsigned short i = 0, j = 0, MEM_POS = 0
+	unsigned short EVT_LB_BASE=0, EVT_LB_STEP=0, OFFSET_CAT=0, N_EVT=0, N_CAT=0
+	unsigned short LAST_EVT_ID=0, LAST_CAT_ID=0 
+	
+	GetData(EVT_LB_BASE, "Local HMI", "EVT_LB_BASE_BAT", 1)
+	GetData(EVT_LB_STEP, "Local HMI", "EVT_LB_STEP_BAT", 1)
+	GetData(OFFSET_CAT, "Local HMI", "OFFSET_CAT_BAT", 1)
+	GetData(N_EVT, "Local HMI", "N_EVT_BAT", 1)
+	GetData(N_CAT, "Local HMI", "N_CAT_BAT", 1)
+			
+	for i = 0 to N_CAT-1 //for each category
+		for j = 0 to N_EVT-1 // for each event 
+			MEM_POS = EVT_LB_BASE + i * EVT_LB_STEP + j
+			GetData(NOTIFICATION, "Local HMI", LB, MEM_POS, 1)
+			if NOTIFICATION then // check if notification is on
+				
+				NOTIFICATION = false // reset notification flag
+				SetData(NOTIFICATION, "Local HMI", LB, MEM_POS, 1)
+				
+				LAST_EVT_ID = j
+				SetData(LAST_EVT_ID, "Local HMI", "LAST_EVT_ID", 1) // save event index
+				
+				LAST_CAT_ID = i + OFFSET_CAT
+				SetData(LAST_CAT_ID, "Local HMI", "LAST_CAT_ID", 1) // save category index
+				
+				return true
+				
+			end if
+		next j
+	next i
+	
+	return false
+	
+end sub
+
+macro_command main()
+
+	bool IS_TRAP=false, ERROR=false, ORIGINATOR_ENABLED=false, AGENT_ENABLED=false
+	
+	while true
+
+		GetData(AGENT_ENABLED, "Local HMI", "SNMP_RESPONSE_ENABLED", 1)
+		GetData(ORIGINATOR_ENABLED, "Local HMI", "SNMP_TRAP_ENABLED", 1)
+		
+		
+		if not AGENT_ENABLED then
+			DELAY(1000)
+			continue
+		end if
+		
+		IS_TRAP = CHECK_NOTIFICATIONS()
+		
+
+		INPORT2(IO_BUFFER[0], "SNMP Agent", IO_BUFFER_LEN, 0) // 0 ms	
+		
+		if (IO_BUFFER_LEN == 0) and (not IS_TRAP) then
+			continue
+		end if
+		
+		ERROR = BUILD_PACKET_ON_JS(IS_TRAP)
+		
+		if ERROR then
+			TRACE("Error building SNMP packet on JS.")
+			SetData(OFF, "Local HMI", "RESPONSE_ERROR_FLAG", 1)
+			continue
+		end if
+		
+		if not ORIGINATOR_ENABLED and IS_TRAP then
+		 	TRACE("TRAP does not send (originator disabled)")
+			continue
+		end if 
+		
+		SEND_PACKET_TO_HOST(IS_TRAP)
+		
+	wend
+
+end macro_command
+
+
