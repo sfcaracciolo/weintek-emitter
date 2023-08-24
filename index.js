@@ -23,15 +23,9 @@ class WeintekEmitter extends events.EventEmitter {
             });
         })
 
-        var init = true // avoid first trigger
         this.config.TRIGGER.onResponse( (err, data) => {
             
             if (err) return this.emit('warning', err)
-            
-            if (init) {
-                init = false 
-                return this.emit('warning', Error('Avoid first trigger.'))
-            }
 
             this.driver.getData(this.config.IS_TRAP, 1, (err, data) => {
                 if (err) return this.emit('warning', err)
@@ -60,7 +54,7 @@ class WeintekEmitter extends events.EventEmitter {
 
             this.driver.getData(this.config.IO_BUFFER, wlen, (err, data) => {
                 if (err) return callback(err, undefined)
-                callback(undefined, Buffer.from(data.buffer)) // Buffer.from is required because the dgram module depend on node:buffer, but in this project must be use buffer (browserly) to compat with JSEngine of the HMI
+                callback(undefined, Buffer.alloc(blen, data.buffer)) // Buffer.from is required because the dgram module depend on node:buffer, but in this project must be use buffer (browserly) to compat with JSEngine of the HMI
             });
         });
     };
