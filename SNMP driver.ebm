@@ -10,7 +10,7 @@ bool ON=true, OFF=false
 unsigned short BUFFER_MAXSIZE=2048
 unsigned char IO_BUFFER[2048] = {0} 
 unsigned short IO_BUFFER_LEN = 0
-unsigned short MAX_WAITING = 10000 // ms
+unsigned short MAX_WAITING = 15000 // ms
 
 sub SEND_PACKET_TO_HOST(bool IS_TRAP)
 	
@@ -26,17 +26,14 @@ sub SEND_PACKET_TO_HOST(bool IS_TRAP)
 		OUTPORT(IO_BUFFER[0], "SNMP Agent", IO_BUFFER_LEN)
 	end if 
 	
-	SetData(OFF, "Local HMI", "RESPONSE_READY_TO_SEND", 1)
-	
 end sub
 
 sub bool BUILD_PACKET_ON_JS(bool IS_TRAP)
 	unsigned short i = 0, TRIGGER=0
 	bool READY=false, ERROR=false
 	
-	TRACE("Building packet ...")
-	TRACE("Is TRAP: %d (0: False, 1: True)", IS_TRAP)
 	TRACE("Received data: %d bytes", IO_BUFFER_LEN)
+	TRACE("Building packet (TRAP = %d) ...", IS_TRAP)
 	
 	if not IS_TRAP then 
 		// set request to hmi memory
@@ -53,8 +50,8 @@ sub bool BUILD_PACKET_ON_JS(bool IS_TRAP)
 	
 	// waiting rsponse process of js object.
 	while (not READY) and (not ERROR) and (i < MAX_WAITING)
-		GetData(READY, "Local HMI", "RESPONSE_READY_TO_SEND", 1)
-		GetData(ERROR, "Local HMI", "RESPONSE_ERROR_FLAG", 1)
+		GetData(READY, "Local HMI", "READY", 1)
+		GetData(ERROR, "Local HMI", "ERROR", 1)
 		//TRACE("waiting ...")
 		DELAY(150)
 		i = i + 150
@@ -70,18 +67,21 @@ sub bool CHECK_NOTIFICATIONS()
 	
 	bool NOTIFICATION=false
 	unsigned short i = 0, j = 0, MEM_POS = 0
-	unsigned short EVT_LB_BASE=0, EVT_LB_STEP=0, OFFSET_CAT=0, N_EVT=0, N_CAT=0
+	//unsigned short EVT_LB_BASE=0, EVT_LB_STEP=0 //, OFFSET_CAT=0, N_EVT=0, N_CAT=0
 	unsigned short LAST_EVT_ID=0, LAST_CAT_ID=0 
 	
-	GetData(EVT_LB_BASE, "Local HMI", "EVT_LB_BASE_BAT", 1)
-	GetData(EVT_LB_STEP, "Local HMI", "EVT_LB_STEP_BAT", 1)
-	GetData(OFFSET_CAT, "Local HMI", "OFFSET_CAT_BAT", 1)
-	GetData(N_EVT, "Local HMI", "N_EVT_BAT", 1)
-	GetData(N_CAT, "Local HMI", "N_CAT_BAT", 1)
+	//GetData(EVT_LB_BASE, "Local HMI", "EVT_LB_BASE_BAT", 1)
+	//GetData(EVT_LB_STEP, "Local HMI", "EVT_LB_STEP_BAT", 1)
+	// GetData(OFFSET_CAT, "Local HMI", "OFFSET_CAT_BAT", 1)
+	// GetData(N_EVT, "Local HMI", "N_EVT_BAT", 1)
+	// GetData(N_CAT, "Local HMI", "N_CAT_BAT", 1)
+	unsigned short N_CAT = 16
+	unsigned short N_EVT[16] = {34,34,34,34,34,34,34,34,34,34,34,34,34,34,34,34}
+	unsigned short EVT_LB_BASE[16] = {2000,2100,2200,2300,2400,2500,2600,2700,2800,2900,3000,3100,3200,3300,3400,3500}
 			
-	for i = 0 to N_CAT-1 //for each category
-		for j = 0 to N_EVT-1 // for each event 
-			MEM_POS = EVT_LB_BASE + i * EVT_LB_STEP + j
+	for i = 0 to N_CAT-1 //for each category	
+		for j = 0 to N_EVT[i]-1 // for each event 
+			MEM_POS = EVT_LB_BASE[i] + j // i * EVT_LB_STEP + j
 			GetData(NOTIFICATION, "Local HMI", LB, MEM_POS, 1)
 			if NOTIFICATION then // check if notification is on
 				
@@ -91,7 +91,7 @@ sub bool CHECK_NOTIFICATIONS()
 				LAST_EVT_ID = j
 				SetData(LAST_EVT_ID, "Local HMI", "LAST_EVT_ID", 1) // save event index
 				
-				LAST_CAT_ID = i + OFFSET_CAT
+				LAST_CAT_ID = i // + OFFSET_CAT
 				SetData(LAST_CAT_ID, "Local HMI", "LAST_CAT_ID", 1) // save category index
 				
 				return true
@@ -110,9 +110,10 @@ macro_command main()
 	
 	while true
 
+		SetData(OFF, "Local HMI", "READY", 1)
+		
 		GetData(AGENT_ENABLED, "Local HMI", "SNMP_RESPONSE_ENABLED", 1)
 		GetData(ORIGINATOR_ENABLED, "Local HMI", "SNMP_TRAP_ENABLED", 1)
-		
 		
 		if not AGENT_ENABLED then
 			DELAY(1000)
@@ -120,7 +121,6 @@ macro_command main()
 		end if
 		
 		IS_TRAP = CHECK_NOTIFICATIONS()
-		
 
 		INPORT2(IO_BUFFER[0], "SNMP Agent", IO_BUFFER_LEN, 0) // 0 ms	
 		
@@ -132,7 +132,7 @@ macro_command main()
 		
 		if ERROR then
 			TRACE("Error building SNMP packet on JS.")
-			SetData(OFF, "Local HMI", "RESPONSE_ERROR_FLAG", 1)
+			SetData(OFF, "Local HMI", "ERROR", 1)
 			continue
 		end if
 		
